@@ -94,7 +94,8 @@ func (p *GitHubProvider) hasOrg(accessToken string) (bool, error) {
 		return false, err
 	}
 	if resp.StatusCode != 200 {
-		return false, fmt.Errorf("got %d from %q %s", resp.StatusCode, endpoint, body)
+		return false, fmt.Errorf(
+			"got %d from %q %s", resp.StatusCode, stripToken(endpoint.String()), body)
 	}
 
 	if err := json.Unmarshal(body, &orgs); err != nil {
@@ -141,7 +142,8 @@ func (p *GitHubProvider) SetUserRoles(accessToken string) (bool, error) {
 		return false, err
 	}
 	if resp.StatusCode != 200 {
-		return false, fmt.Errorf("got %d from %q %s", resp.StatusCode, endpoint, body)
+		return false, fmt.Errorf(
+			"got %d from %q %s", resp.StatusCode, stripToken(endpoint.String()), body)
 	}
 
 	if err := json.Unmarshal(body, &p.userRoles); err != nil {
@@ -229,9 +231,10 @@ func (p *GitHubProvider) GetEmailAddress(s *SessionState) (string, error) {
 	}
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("got %d from %q %s", resp.StatusCode, endpoint, body)
+		return "", fmt.Errorf("got %d from %q %s",
+			resp.StatusCode, stripToken(endpoint.String()), body)
 	} else {
-		log.Printf("got %d from %q %s", resp.StatusCode, endpoint, body)
+		log.Printf("got %d from %q %s", resp.StatusCode, stripToken(endpoint.String()), body)
 	}
 
 	if err := json.Unmarshal(body, &emails); err != nil {

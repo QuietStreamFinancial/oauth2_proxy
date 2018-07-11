@@ -2,8 +2,10 @@ package main
 
 import (
 	"crypto"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -46,6 +48,7 @@ type Options struct {
 	CookieSecure   bool          `flag:"cookie-secure" cfg:"cookie_secure"`
 	CookieHttpOnly bool          `flag:"cookie-httponly" cfg:"cookie_httponly"`
 
+<<<<<<< HEAD
 	Upstreams          []string `flag:"upstream" cfg:"upstreams"`
 	SkipAuthRegex      []string `flag:"skip-auth-regex" cfg:"skip_auth_regex"`
 	PassBasicAuth      bool     `flag:"pass-basic-auth" cfg:"pass_basic_auth"`
@@ -54,6 +57,19 @@ type Options struct {
 	PassHostHeader     bool     `flag:"pass-host-header" cfg:"pass_host_header"`
 	PassRolesHeader   bool     `flag:"pass-roles-header" cfg:"pass_roles_header"`
 	SkipProviderButton bool     `flag:"skip-provider-button" cfg:"skip_provider_button"`
+=======
+	Upstreams             []string `flag:"upstream" cfg:"upstreams"`
+	SkipAuthRegex         []string `flag:"skip-auth-regex" cfg:"skip_auth_regex"`
+	PassBasicAuth         bool     `flag:"pass-basic-auth" cfg:"pass_basic_auth"`
+	BasicAuthPassword     string   `flag:"basic-auth-password" cfg:"basic_auth_password"`
+	PassAccessToken       bool     `flag:"pass-access-token" cfg:"pass_access_token"`
+	PassHostHeader        bool     `flag:"pass-host-header" cfg:"pass_host_header"`
+	SkipProviderButton    bool     `flag:"skip-provider-button" cfg:"skip_provider_button"`
+	PassUserHeaders       bool     `flag:"pass-user-headers" cfg:"pass_user_headers"`
+	SSLInsecureSkipVerify bool     `flag:"ssl-insecure-skip-verify" cfg:"ssl_insecure_skip_verify"`
+	SetXAuthRequest       bool     `flag:"set-xauthrequest" cfg:"set_xauthrequest"`
+	SkipAuthPreflight     bool     `flag:"skip-auth-preflight" cfg:"skip_auth_preflight"`
+>>>>>>> master
 
 	// These options allow for other providers besides Google, with
 	// potential overrides.
@@ -94,11 +110,17 @@ func NewOptions() *Options {
 		CookieHttpOnly:      true,
 		CookieExpire:        time.Duration(168) * time.Hour,
 		CookieRefresh:       time.Duration(0),
+		SetXAuthRequest:     false,
+		SkipAuthPreflight:   false,
 		PassBasicAuth:       true,
+		PassUserHeaders:     true,
 		PassAccessToken:     false,
 		PassHostHeader:      true,
+<<<<<<< HEAD
 		PassRolesHeader:     false,
 		SkipProviderButton:  false,
+=======
+>>>>>>> master
 		ApprovalPrompt:      "force",
 		RequestLogging:      true,
 	}
@@ -209,6 +231,14 @@ func (o *Options) Validate() error {
 	}
 
 	msgs = parseSignatureKey(o, msgs)
+	msgs = validateCookieName(o, msgs)
+
+	if o.SSLInsecureSkipVerify {
+		insecureTransport := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		http.DefaultClient = &http.Client{Transport: insecureTransport}
+	}
 
 	if len(msgs) != 0 {
 		return fmt.Errorf("Invalid configuration:\n  %s",
@@ -266,6 +296,14 @@ func parseSignatureKey(o *Options, msgs []string) []string {
 			o.SignatureKey)
 	} else {
 		o.signatureData = &SignatureData{hash, secretKey}
+	}
+	return msgs
+}
+
+func validateCookieName(o *Options, msgs []string) []string {
+	cookie := &http.Cookie{Name: o.CookieName}
+	if cookie.String() == "" {
+		return append(msgs, fmt.Sprintf("invalid cookie name: %q", o.CookieName))
 	}
 	return msgs
 }
