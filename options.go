@@ -48,28 +48,18 @@ type Options struct {
 	CookieSecure   bool          `flag:"cookie-secure" cfg:"cookie_secure"`
 	CookieHttpOnly bool          `flag:"cookie-httponly" cfg:"cookie_httponly"`
 
-<<<<<<< HEAD
-	Upstreams          []string `flag:"upstream" cfg:"upstreams"`
-	SkipAuthRegex      []string `flag:"skip-auth-regex" cfg:"skip_auth_regex"`
-	PassBasicAuth      bool     `flag:"pass-basic-auth" cfg:"pass_basic_auth"`
-	BasicAuthPassword  string   `flag:"basic-auth-password" cfg:"basic_auth_password"`
-	PassAccessToken    bool     `flag:"pass-access-token" cfg:"pass_access_token"`
-	PassHostHeader     bool     `flag:"pass-host-header" cfg:"pass_host_header"`
-	PassRolesHeader   bool     `flag:"pass-roles-header" cfg:"pass_roles_header"`
-	SkipProviderButton bool     `flag:"skip-provider-button" cfg:"skip_provider_button"`
-=======
 	Upstreams             []string `flag:"upstream" cfg:"upstreams"`
 	SkipAuthRegex         []string `flag:"skip-auth-regex" cfg:"skip_auth_regex"`
 	PassBasicAuth         bool     `flag:"pass-basic-auth" cfg:"pass_basic_auth"`
 	BasicAuthPassword     string   `flag:"basic-auth-password" cfg:"basic_auth_password"`
 	PassAccessToken       bool     `flag:"pass-access-token" cfg:"pass_access_token"`
 	PassHostHeader        bool     `flag:"pass-host-header" cfg:"pass_host_header"`
-	SkipProviderButton    bool     `flag:"skip-provider-button" cfg:"skip_provider_button"`
+   PassRolesHeader   bool     `flag:"pass-roles-header" cfg:"pass_roles_header"`
+   SkipProviderButton    bool     `flag:"skip-provider-button" cfg:"skip_provider_button"`
 	PassUserHeaders       bool     `flag:"pass-user-headers" cfg:"pass_user_headers"`
 	SSLInsecureSkipVerify bool     `flag:"ssl-insecure-skip-verify" cfg:"ssl_insecure_skip_verify"`
 	SetXAuthRequest       bool     `flag:"set-xauthrequest" cfg:"set_xauthrequest"`
 	SkipAuthPreflight     bool     `flag:"skip-auth-preflight" cfg:"skip_auth_preflight"`
->>>>>>> master
 
 	// These options allow for other providers besides Google, with
 	// potential overrides.
@@ -116,11 +106,8 @@ func NewOptions() *Options {
 		PassUserHeaders:     true,
 		PassAccessToken:     false,
 		PassHostHeader:      true,
-<<<<<<< HEAD
 		PassRolesHeader:     false,
 		SkipProviderButton:  false,
-=======
->>>>>>> master
 		ApprovalPrompt:      "force",
 		RequestLogging:      true,
 	}
