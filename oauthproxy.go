@@ -13,10 +13,12 @@ import (
 	"regexp"
 	"strings"
 	"time"
+  // "/providers"
 
 	"github.com/18F/hmacauth"
 	"github.com/bitly/oauth2_proxy/cookie"
-	"github.com/bitly/oauth2_proxy/providers"
+   "github.com/jasonbaron/oauth2_proxy/providers"
+	// "github.com/bitly/oauth2_proxy/providers"
 )
 
 const SignatureHeader = "GAP-Signature"
