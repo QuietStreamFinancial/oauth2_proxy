@@ -206,6 +206,7 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 		BasicAuthPassword:  opts.BasicAuthPassword,
 		PassAccessToken:    opts.PassAccessToken,
 		PassRolesHeader:   opts.PassRolesHeader,
+		DefaultUserRole: opts.DefaultUserRole,
 		SkipProviderButton: opts.SkipProviderButton,
 		CookieCipher:       cipher,
 		templates:          loadTemplates(opts.CustomTemplatesDir),
@@ -720,7 +721,7 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 			if p.DefaultUserRole != "" {
 				mergedRefreshRoles := (p.DefaultUserRole + refreshedRoles)
 				req.Header["X-Forwarded-Roles"] = []string{mergedRefreshRoles}
-				log.Printf("Refreshed user role data - %v", mergedRefreshRoles)
+				log.Printf("Refreshed user role data (merged) - %v", mergedRefreshRoles)
 				if p.SetXAuthRequest {
 					rw.Header().Set("X-Auth-Request-Role", mergedRefreshRoles)
 				}
@@ -735,7 +736,7 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 			if p.DefaultUserRole != "" {
 				mergedRoles := (p.DefaultUserRole + roles)
 				req.Header["X-Forwarded-Roles"] = []string{mergedRoles}
-				log.Printf("User role data - %v", mergedRoles)
+				log.Printf("User role data (merged) - %v", mergedRoles)
 				if p.SetXAuthRequest {
 					rw.Header().Set("X-Auth-Request-Role", mergedRoles)
 				}
@@ -748,27 +749,6 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 			}
 		}
 	}
-  // if p.PassRolesHeader {
-	// 	rp := p.provider.(providers.RoleProvider)
-	// 	roles := rp.GetUserRoles()
-  //
-	// 	// Upon restarting the proxy, if there is an existing cookie, we need to re-fetch roles from provider
-	// 	// Project preference is to avoid cookie bloat, so we aren't storing roles in the cookie
-	// 	// https://github.com/bitly/oauth2_proxy/issues/174#issuecomment-1578273584
-	// 	var i = 0
-	// 	if len(roles) < 1  && i < 1 {
-	// 		i++
-	// 		rp.SetUserRoles(session.AccessToken)
-	// 		refreshedRoles := rp.GetUserRoles()
-	// 		req.Header["X-Forwarded-Roles"] = []string{refreshedRoles}
-	// 		log.Printf("Refreshed user role data - %v", refreshedRoles)
-  //
-	// 	} else {
-	// 		req.Header["X-Forwarded-Roles"] = []string{roles}
-	// 		log.Printf("User role data - %v", roles)
-	// 	}
-	// }
-
 
 	if session.Email == "" {
 		rw.Header().Set("GAP-Auth", session.User)
