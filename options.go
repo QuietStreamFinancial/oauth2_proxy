@@ -114,7 +114,8 @@ func NewOptions() *Options {
 		PassRolesHeader:     false,
 		SkipProviderButton:  false,
 		ApprovalPrompt:      "force",
-		RequestLogging:      true,
+// 		RequestLogging:      true,
+		RequestLoggingFormat: defaultRequestLoggingFormat,
 	}
 }
 
