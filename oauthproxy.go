@@ -693,16 +693,21 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 	}
 	if p.PassUserHeaders {
 		req.Header["X-Forwarded-User"] = []string{session.User}
+		log.Printf("Sent X-Forwarded-User - %v", session.User)
 		if session.Email != "" {
 			req.Header["X-Forwarded-Email"] = []string{session.Email}
+			log.Printf("Sent X-Forwarded-Email - %v", session.Email)
 		}
 	}
 	if p.SetXAuthRequest {
 		rw.Header().Set("X-Auth-Request-User", session.User)
+		log.Printf("X-Auth-Request-User - %v", session.User)
 		if session.Email != "" {
 			rw.Header().Set("X-Auth-Request-Email", session.Email)
+			log.Printf("X-Auth-Request-Email - %v", session.Email)
 		}
 	}
+
 	if p.PassAccessToken && session.AccessToken != "" {
 		req.Header["X-Forwarded-Access-Token"] = []string{session.AccessToken}
 	}
@@ -724,12 +729,14 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 				log.Printf("Refreshed user role data (merged) - %v", mergedRefreshRoles)
 				if p.SetXAuthRequest {
 					rw.Header().Set("X-Auth-Request-Role", mergedRefreshRoles)
+					log.Printf("Sent X-Auth-Request-Role - user role data (merged) - %v", mergedRefreshRoles)
 				}
 			} else {
 				req.Header["X-Forwarded-Roles"] = []string{refreshedRoles}
 				log.Printf("Refreshed user role data - %v", refreshedRoles)
 				if p.SetXAuthRequest {
 					rw.Header().Set("X-Auth-Request-Role", refreshedRoles)
+					log.Printf("Sent X-Auth-Request-Role - user role data - %v", refreshedRoles)
 				}
 			}
 		} else {
