@@ -706,10 +706,6 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 			rw.Header().Set("X-Auth-Request-Email", session.Email)
 			log.Printf("X-Auth-Request-Email - %v", session.Email)
 		}
-    // if p.PassRolesHeader {
-  	// 	rp := p.provider.(providers.RoleProvider)
-  	// 	roles := rp.GetUserRoles()
-
 	}
 
 	if p.PassAccessToken && session.AccessToken != "" {
