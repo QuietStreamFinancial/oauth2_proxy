@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-
 	"github.com/bitly/oauth2_proxy/cookie"
 )
 
