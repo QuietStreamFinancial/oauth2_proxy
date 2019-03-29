@@ -12,6 +12,7 @@ import (
 	"strings"
 )
 
+// GitHubProvider represents an GitHub based Identity Provider
 type GitHubProvider struct {
 	*ProviderData
 	Org       string
@@ -25,6 +26,7 @@ type GitHubProvider struct {
 	}
 }
 
+// NewGitHubProvider initiates a new GitHubProvider
 func NewGitHubProvider(p *ProviderData) *GitHubProvider {
 	p.ProviderName = "GitHub"
 	if p.LoginURL == nil || p.LoginURL.String() == "" {
@@ -55,6 +57,7 @@ func NewGitHubProvider(p *ProviderData) *GitHubProvider {
 	return &GitHubProvider{ProviderData: p}
 }
 
+// SetOrgTeam adds GitHub org reading parameters to the OAuth2 scope
 func (p *GitHubProvider) SetOrgTeam(org, team string) {
 	p.Org = org
 	p.Team = team
@@ -114,7 +117,7 @@ func (p *GitHubProvider) hasOrg(accessToken string) (bool, error) {
 		}
 
 		orgs = append(orgs, op...)
-		pn += 1
+		pn++
 	}
 
 	var presentOrgs []string
@@ -193,7 +196,7 @@ func (p *GitHubProvider) hasOrgAndTeam(accessToken string) (bool, error) {
 		log.Printf("Missing Team:%q from Org:%q in teams: %v", p.Team, p.Org, presentTeams)
 	} else {
 		var allOrgs []string
-		for org, _ := range presentOrgs {
+		for org := range presentOrgs {
 			allOrgs = append(allOrgs, org)
 		}
 		log.Printf("Missing Organization:%q in %#v", p.Org, allOrgs)
@@ -201,6 +204,7 @@ func (p *GitHubProvider) hasOrgAndTeam(accessToken string) (bool, error) {
 	return false, nil
 }
 
+// GetEmailAddress returns the Account email address
 func (p *GitHubProvider) GetEmailAddress(s *SessionState) (string, error) {
 
 	var emails []struct {
@@ -284,7 +288,8 @@ func (p *GitHubProvider) GetUserRoles() string {
 	return strings.Join(presentRoles, ",")
 }
 
-  func (p *GitHubProvider) GetUserName(s *SessionState) (string, error) {
+// GetUserName returns the Account user name
+func (p *GitHubProvider) GetUserName(s *SessionState) (string, error) {
 	var user struct {
 		Login string `json:"login"`
 		Email string `json:"email"`

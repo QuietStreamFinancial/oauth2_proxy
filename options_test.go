@@ -88,9 +88,9 @@ func TestProxyURLs(t *testing.T) {
 	o.Upstreams = append(o.Upstreams, "http://127.0.0.1:8081")
 	assert.Equal(t, nil, o.Validate())
 	expected := []*url.URL{
-		&url.URL{Scheme: "http", Host: "127.0.0.1:8080", Path: "/"},
+		{Scheme: "http", Host: "127.0.0.1:8080", Path: "/"},
 		// note the '/' was added
-		&url.URL{Scheme: "http", Host: "127.0.0.1:8081", Path: "/"},
+		{Scheme: "http", Host: "127.0.0.1:8081", Path: "/"},
 	}
 	assert.Equal(t, expected, o.proxyURLs)
 }
@@ -250,4 +250,27 @@ func TestValidateCookieBadName(t *testing.T) {
 	err := o.Validate()
 	assert.Equal(t, err.Error(), "Invalid configuration:\n"+
 		fmt.Sprintf("  invalid cookie name: %q", o.CookieName))
+}
+
+func TestSkipOIDCDiscovery(t *testing.T) {
+	o := testOptions()
+	o.Provider = "oidc"
+	o.OIDCIssuerURL = "https://login.microsoftonline.com/fabrikamb2c.onmicrosoft.com/v2.0/"
+	o.SkipOIDCDiscovery = true
+
+	err := o.Validate()
+	assert.Equal(t, "Invalid configuration:\n"+
+		fmt.Sprintf("  missing setting: login-url\n  missing setting: redeem-url\n  missing setting: oidc-jwks-url"), err.Error())
+
+	o.LoginURL = "https://login.microsoftonline.com/fabrikamb2c.onmicrosoft.com/oauth2/v2.0/authorize?p=b2c_1_sign_in"
+	o.RedeemURL = "https://login.microsoftonline.com/fabrikamb2c.onmicrosoft.com/oauth2/v2.0/token?p=b2c_1_sign_in"
+	o.OIDCJwksURL = "https://login.microsoftonline.com/fabrikamb2c.onmicrosoft.com/discovery/v2.0/keys"
+
+	assert.Equal(t, nil, o.Validate())
+}
+
+func TestGCPHealthcheck(t *testing.T) {
+	o := testOptions()
+	o.GCPHealthChecks = true
+	assert.Equal(t, nil, o.Validate())
 }

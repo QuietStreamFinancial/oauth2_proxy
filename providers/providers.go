@@ -1,11 +1,10 @@
 package providers
 
 import (
-	"github.com/bitly/oauth2_proxy/cookie"
+	"github.com/pusher/oauth2_proxy/cookie"
 )
 
-// Provider is the primary interface for an authentication provider
-// all provider
+// Provider represents an upstream identity provider implementation
 type Provider interface {
 	Data() *ProviderData
 	GetEmailAddress(*SessionState) (string, error)
@@ -28,6 +27,7 @@ type RoleProvider interface {
 }
 
 // New gives you an instance of the given provider
+// New provides a new Provider based on the configured provider string
 func New(provider string, p *ProviderData) Provider {
 	switch provider {
 	case "linkedin":
@@ -42,6 +42,8 @@ func New(provider string, p *ProviderData) Provider {
 		return NewGitLabProvider(p)
 	case "oidc":
 		return NewOIDCProvider(p)
+	case "login.gov":
+		return NewLoginGovProvider(p)
 	default:
 		return NewGoogleProvider(p)
 	}

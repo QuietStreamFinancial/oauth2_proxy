@@ -4,13 +4,15 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/mreiferson/go-options"
+	options "github.com/mreiferson/go-options"
 )
 
 func main() {
@@ -18,6 +20,7 @@ func main() {
 	flagSet := flag.NewFlagSet("oauth2_proxy", flag.ExitOnError)
 
 	emailDomains := StringArray{}
+	whitelistDomains := StringArray{}
 	upstreams := StringArray{}
 	skipAuthRegex := StringArray{}
 	googleGroups := StringArray{}
@@ -39,12 +42,16 @@ func main() {
 	flagSet.Bool("pass-host-header", true, "pass the request Host Header to upstream")
 	flagSet.Bool("pass-roles-header", false, "pass user's teams upstream via X-Forwarded-Roles header")
 	flagSet.String("default-user-role", "", "Set Default Roles. ex: \"user,\" ")
+	flagSet.Bool("pass-authorization-header", false, "pass the Authorization Header to upstream")
+	flagSet.Bool("set-authorization-header", false, "set Authorization response headers (useful in Nginx auth_request mode)")
 	flagSet.Var(&skipAuthRegex, "skip-auth-regex", "bypass authentication for requests path's that match (may be given multiple times)")
 	flagSet.Bool("skip-provider-button", false, "will skip sign-in-page to directly reach the next step: oauth/start")
 	flagSet.Bool("skip-auth-preflight", false, "will skip authentication for OPTIONS requests")
 	flagSet.Bool("ssl-insecure-skip-verify", false, "skip validation of certificates presented when using HTTPS")
+	flagSet.Duration("flush-interval", time.Duration(1)*time.Second, "period between response flushing when streaming responses")
 
 	flagSet.Var(&emailDomains, "email-domain", "authenticate emails with the specified domain (may be given multiple times). Use * to authenticate any email")
+	flagSet.Var(&whitelistDomains, "whitelist-domain", "allowed domains for redirection after authentication. Prefix domain with a . to allow subdomains (eg .example.com)")
 	flagSet.String("azure-tenant", "common", "go to a tenant-specific or common (tenant-independent) endpoint.")
 	flagSet.String("github-org", "", "restrict logins to members of this organisation")
 	flagSet.String("github-team", "", "restrict logins to members of this team")
@@ -59,6 +66,7 @@ func main() {
 	flagSet.String("custom-templates-dir", "", "path to custom html templates")
 	flagSet.String("footer", "", "custom footer string. Use \"-\" to disable default footer.")
 	flagSet.String("proxy-prefix", "/oauth2", "the url root path that this proxy should be nested under (e.g. /<oauth2>/sign_in)")
+	flagSet.Bool("proxy-websockets", true, "enables WebSocket proxying")
 
 	flagSet.String("cookie-name", "_oauth2_proxy", "the name of the cookie that the oauth_proxy creates")
 	flagSet.String("cookie-secret", "", "the seed string for secure cookies (optionally base64 encoded)")
@@ -73,6 +81,8 @@ func main() {
 
 	flagSet.String("provider", "google", "OAuth provider")
 	flagSet.String("oidc-issuer-url", "", "OpenID Connect issuer URL (ie: https://accounts.google.com)")
+	flagSet.Bool("skip-oidc-discovery", false, "Skip OIDC discovery and use manually supplied Endpoints")
+	flagSet.String("oidc-jwks-url", "", "OpenID Connect JWKS URL (ie: https://www.googleapis.com/oauth2/v3/certs)")
 	flagSet.String("login-url", "", "Authentication endpoint")
 	flagSet.String("redeem-url", "", "Token redemption endpoint")
 	flagSet.String("profile-url", "", "Profile access endpoint")
@@ -82,11 +92,15 @@ func main() {
 	flagSet.String("approval-prompt", "force", "OAuth approval_prompt")
 
 	flagSet.String("signature-key", "", "GAP-Signature request signature key (algorithm:secretkey)")
+	flagSet.String("acr-values", "http://idmanagement.gov/ns/assurance/loa/1", "acr values string:  optional, used by login.gov")
+	flagSet.String("jwt-key", "", "private key used to sign JWT: required by login.gov")
+	flagSet.String("pubjwk-url", "", "JWK pubkey access endpoint: required by login.gov")
+	flagSet.Bool("gcp-healthchecks", false, "Enable GCP/GKE healthcheck endpoints")
 
 	flagSet.Parse(os.Args[1:])
 
 	if *showVersion {
-		fmt.Printf("oauth2_proxy v%s (built with %s)\n", VERSION, runtime.Version())
+		fmt.Printf("oauth2_proxy %s (built with %s)\n", VERSION, runtime.Version())
 		return
 	}
 
@@ -127,8 +141,16 @@ func main() {
 		}
 	}
 
+	rand.Seed(time.Now().UnixNano())
+
+	var handler http.Handler
+	if opts.GCPHealthChecks {
+		handler = gcpHealthcheck(LoggingHandler(os.Stdout, oauthproxy, opts.RequestLogging, opts.RequestLoggingFormat))
+	} else {
+		handler = LoggingHandler(os.Stdout, oauthproxy, opts.RequestLogging, opts.RequestLoggingFormat)
+	}
 	s := &Server{
-		Handler: LoggingHandler(os.Stdout, oauthproxy, opts.RequestLogging, opts.RequestLoggingFormat),
+		Handler: handler,
 		Opts:    opts,
 	}
 	s.ListenAndServe()

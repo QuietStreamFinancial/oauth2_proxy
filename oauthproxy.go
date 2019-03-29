@@ -14,14 +14,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitly/oauth2_proxy/cookie"
-	"github.com/bitly/oauth2_proxy/providers"
 	"github.com/mbland/hmacauth"
+	"github.com/pusher/oauth2_proxy/cookie"
+	"github.com/pusher/oauth2_proxy/providers"
+	"github.com/yhat/wsutil"
 )
 
-const SignatureHeader = "GAP-Signature"
+const (
+	// SignatureHeader is the name of the request header containing the GAP Signature
+	// Part of hmacauth
+	SignatureHeader = "GAP-Signature"
 
-var SignatureHeaders []string = []string{
+	httpScheme  = "http"
+	httpsScheme = "https"
+
+	// Cookies are limited to 4kb including the length of the cookie name,
+	// the cookie name can be up to 256 bytes
+	maxCookieLength = 3840
+
+	applicationJSON = "application/json"
+)
+
+// SignatureHeaders contains the headers to be signed by the hmac algorithm
+// Part of hmacauth
+var SignatureHeaders = []string{
 	"Content-Length",
 	"Content-Md5",
 	"Content-Type",
@@ -35,13 +51,14 @@ var SignatureHeaders []string = []string{
 	"Gap-Auth",
 }
 
+// OAuthProxy is the main authentication proxy
 type OAuthProxy struct {
 	CookieSeed     string
 	CookieName     string
 	CSRFCookieName string
 	CookieDomain   string
 	CookieSecure   bool
-	CookieHttpOnly bool
+	CookieHTTPOnly bool
 	CookieExpire   time.Duration
 	CookieRefresh  time.Duration
 	Validator      func(string) bool
@@ -55,6 +72,7 @@ type OAuthProxy struct {
 	AuthOnlyPath      string
 
 	redirectURL         *url.URL // the url to receive requests at
+	whitelistDomains    []string
 	provider            providers.Provider
 	ProxyPrefix         string
 	SignInMessage       string
@@ -68,7 +86,7 @@ type OAuthProxy struct {
 	BasicAuthPassword   string
 	PassAccessToken     bool
 	PassRolesHeader     bool
-	DefaultUserRole  string
+	DefaultUserRole  		string
 	CookieCipher        *cookie.Cipher
 	skipAuthRegex       []string
 	skipAuthPreflight   bool
@@ -77,24 +95,38 @@ type OAuthProxy struct {
 	Footer              string
 }
 
+// UpstreamProxy represents an upstream server to proxy to
 type UpstreamProxy struct {
-	upstream string
-	handler  http.Handler
-	auth     hmacauth.HmacAuth
+	upstream  string
+	handler   http.Handler
+	wsHandler http.Handler
+	auth      hmacauth.HmacAuth
 }
 
+// ServeHTTP proxies requests to the upstream provider while signing the
+// request headers
 func (u *UpstreamProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("GAP-Upstream-Address", u.upstream)
 	if u.auth != nil {
 		r.Header.Set("GAP-Auth", w.Header().Get("GAP-Auth"))
 		u.auth.SignRequest(r)
 	}
-	u.handler.ServeHTTP(w, r)
+	if u.wsHandler != nil && strings.ToLower(r.Header.Get("Connection")) == "upgrade" && r.Header.Get("Upgrade") == "websocket" {
+		u.wsHandler.ServeHTTP(w, r)
+	} else {
+		u.handler.ServeHTTP(w, r)
+	}
+
 }
 
-func NewReverseProxy(target *url.URL) (proxy *httputil.ReverseProxy) {
-	return httputil.NewSingleHostReverseProxy(target)
+// NewReverseProxy creates a new reverse proxy for proxying requests to upstream
+// servers
+func NewReverseProxy(target *url.URL, flushInterval time.Duration) (proxy *httputil.ReverseProxy) {
+	proxy = httputil.NewSingleHostReverseProxy(target)
+	proxy.FlushInterval = flushInterval
+	return proxy
 }
+
 func setProxyUpstreamHostHeader(proxy *httputil.ReverseProxy, target *url.URL) {
 	director := proxy.Director
 	proxy.Director = func(req *http.Request) {
@@ -105,6 +137,7 @@ func setProxyUpstreamHostHeader(proxy *httputil.ReverseProxy, target *url.URL) {
 		req.URL.RawQuery = ""
 	}
 }
+
 func setProxyDirector(proxy *httputil.ReverseProxy) {
 	director := proxy.Director
 	proxy.Director = func(req *http.Request) {
@@ -114,10 +147,33 @@ func setProxyDirector(proxy *httputil.ReverseProxy) {
 		req.URL.RawQuery = ""
 	}
 }
+
+// NewFileServer creates a http.Handler to serve files from the filesystem
 func NewFileServer(path string, filesystemPath string) (proxy http.Handler) {
 	return http.StripPrefix(path, http.FileServer(http.Dir(filesystemPath)))
 }
 
+// NewWebSocketOrRestReverseProxy creates a reverse proxy for REST or websocket based on url
+func NewWebSocketOrRestReverseProxy(u *url.URL, opts *Options, auth hmacauth.HmacAuth) (restProxy http.Handler) {
+	u.Path = ""
+	proxy := NewReverseProxy(u, opts.FlushInterval)
+	if !opts.PassHostHeader {
+		setProxyUpstreamHostHeader(proxy, u)
+	} else {
+		setProxyDirector(proxy)
+	}
+
+	// this should give us a wss:// scheme if the url is https:// based.
+	var wsProxy *wsutil.ReverseProxy
+	if opts.ProxyWebSockets {
+		wsScheme := "ws" + strings.TrimPrefix(u.Scheme, "http")
+		wsURL := &url.URL{Scheme: wsScheme, Host: u.Host}
+		wsProxy = wsutil.NewSingleHostReverseProxy(wsURL)
+	}
+	return &UpstreamProxy{u.Host, proxy, wsProxy, auth}
+}
+
+// NewOAuthProxy creates a new instance of OOuthProxy from the options provided
 func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 	serveMux := http.NewServeMux()
 	var auth hmacauth.HmacAuth
@@ -128,24 +184,18 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 	for _, u := range opts.proxyURLs {
 		path := u.Path
 		switch u.Scheme {
-		case "http", "https":
-			u.Path = ""
+		case httpScheme, httpsScheme:
 			log.Printf("mapping path %q => upstream %q", path, u)
-			proxy := NewReverseProxy(u)
-			if !opts.PassHostHeader {
-				setProxyUpstreamHostHeader(proxy, u)
-			} else {
-				setProxyDirector(proxy)
-			}
-			serveMux.Handle(path,
-				&UpstreamProxy{u.Host, proxy, auth})
+			proxy := NewWebSocketOrRestReverseProxy(u, opts, auth)
+			serveMux.Handle(path, proxy)
+
 		case "file":
 			if u.Fragment != "" {
 				path = u.Fragment
 			}
 			log.Printf("mapping path %q => file system %q", path, u.Path)
 			proxy := NewFileServer(path, u.Path)
-			serveMux.Handle(path, &UpstreamProxy{path, proxy, nil})
+			serveMux.Handle(path, &UpstreamProxy{path, proxy, nil, nil})
 		default:
 			panic(fmt.Sprintf("unknown upstream protocol %s", u.Scheme))
 		}
@@ -155,7 +205,9 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 	}
 
 	redirectURL := opts.redirectURL
-	redirectURL.Path = fmt.Sprintf("%s/callback", opts.ProxyPrefix)
+	if redirectURL.Path == "" {
+		redirectURL.Path = fmt.Sprintf("%s/callback", opts.ProxyPrefix)
+	}
 
 	log.Printf("OAuthProxy configured for %s Client ID: %s", opts.provider.Data().ProviderName, opts.ClientID)
 	refresh := "disabled"
@@ -163,10 +215,10 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 		refresh = fmt.Sprintf("after %s", opts.CookieRefresh)
 	}
 
-	log.Printf("Cookie settings: name:%s secure(https):%v httponly:%v expiry:%s domain:%s refresh:%s", opts.CookieName, opts.CookieSecure, opts.CookieHttpOnly, opts.CookieExpire, opts.CookieDomain, refresh)
+	log.Printf("Cookie settings: name:%s secure(https):%v httponly:%v expiry:%s domain:%s refresh:%s", opts.CookieName, opts.CookieSecure, opts.CookieHTTPOnly, opts.CookieExpire, opts.CookieDomain, refresh)
 
 	var cipher *cookie.Cipher
-	if opts.PassAccessToken || (opts.CookieRefresh != time.Duration(0)) {
+	if opts.PassAccessToken || opts.SetAuthorization || opts.PassAuthorization || (opts.CookieRefresh != time.Duration(0)) {
 		var err error
 		cipher, err = cookie.NewCipher(secretBytes(opts.CookieSecret))
 		if err != nil {
@@ -180,7 +232,7 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 		CookieSeed:     opts.CookieSecret,
 		CookieDomain:   opts.CookieDomain,
 		CookieSecure:   opts.CookieSecure,
-		CookieHttpOnly: opts.CookieHttpOnly,
+		CookieHTTPOnly: opts.CookieHTTPOnly,
 		CookieExpire:   opts.CookieExpire,
 		CookieRefresh:  opts.CookieRefresh,
 		Validator:      validator,
@@ -197,6 +249,7 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 		provider:           opts.provider,
 		serveMux:           serveMux,
 		redirectURL:        redirectURL,
+		whitelistDomains:   opts.WhitelistDomains,
 		skipAuthRegex:      opts.SkipAuthRegex,
 		skipAuthPreflight:  opts.SkipAuthPreflight,
 		compiledRegex:      opts.CompiledRegex,
@@ -205,8 +258,10 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 		PassUserHeaders:    opts.PassUserHeaders,
 		BasicAuthPassword:  opts.BasicAuthPassword,
 		PassAccessToken:    opts.PassAccessToken,
-		PassRolesHeader:   opts.PassRolesHeader,
-		DefaultUserRole: opts.DefaultUserRole,
+		PassRolesHeader:   	opts.PassRolesHeader,
+		DefaultUserRole: 		opts.DefaultUserRole,
+		SetAuthorization:   opts.SetAuthorization,
+		PassAuthorization:  opts.PassAuthorization,
 		SkipProviderButton: opts.SkipProviderButton,
 		CookieCipher:       cipher,
 		templates:          loadTemplates(opts.CustomTemplatesDir),
@@ -214,6 +269,8 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 	}
 }
 
+// GetRedirectURI returns the redirectURL that the upstream OAuth Provider will
+// redirect clients to once authenticated
 func (p *OAuthProxy) GetRedirectURI(host string) string {
 	// default to the request Host if not set
 	if p.redirectURL.Host != "" {
@@ -223,9 +280,9 @@ func (p *OAuthProxy) GetRedirectURI(host string) string {
 	u = *p.redirectURL
 	if u.Scheme == "" {
 		if p.CookieSecure {
-			u.Scheme = "https"
+			u.Scheme = httpsScheme
 		} else {
-			u.Scheme = "http"
+			u.Scheme = httpScheme
 		}
 	}
 	u.Host = host
@@ -259,17 +316,105 @@ func (p *OAuthProxy) redeemCode(host, code string) (s *providers.SessionState, e
 	return
 }
 
-func (p *OAuthProxy) MakeSessionCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
+// MakeSessionCookie creates an http.Cookie containing the authenticated user's
+// authentication details
+func (p *OAuthProxy) MakeSessionCookie(req *http.Request, value string, expiration time.Duration, now time.Time) []*http.Cookie {
 	if value != "" {
 		value = cookie.SignedValue(p.CookieSeed, p.CookieName, value, now)
-		if len(value) > 4096 {
-			// Cookies cannot be larger than 4kb
-			log.Printf("WARNING - Cookie Size: %d bytes", len(value))
-		}
 	}
-	return p.makeCookie(req, p.CookieName, value, expiration, now)
+	c := p.makeCookie(req, p.CookieName, value, expiration, now)
+	if len(c.Value) > 4096-len(p.CookieName) {
+		return splitCookie(c)
+	}
+	return []*http.Cookie{c}
 }
 
+func copyCookie(c *http.Cookie) *http.Cookie {
+	return &http.Cookie{
+		Name:       c.Name,
+		Value:      c.Value,
+		Path:       c.Path,
+		Domain:     c.Domain,
+		Expires:    c.Expires,
+		RawExpires: c.RawExpires,
+		MaxAge:     c.MaxAge,
+		Secure:     c.Secure,
+		HttpOnly:   c.HttpOnly,
+		Raw:        c.Raw,
+		Unparsed:   c.Unparsed,
+	}
+}
+
+// splitCookie reads the full cookie generated to store the session and splits
+// it into a slice of cookies which fit within the 4kb cookie limit indexing
+// the cookies from 0
+func splitCookie(c *http.Cookie) []*http.Cookie {
+	if len(c.Value) < maxCookieLength {
+		return []*http.Cookie{c}
+	}
+	cookies := []*http.Cookie{}
+	valueBytes := []byte(c.Value)
+	count := 0
+	for len(valueBytes) > 0 {
+		new := copyCookie(c)
+		new.Name = fmt.Sprintf("%s_%d", c.Name, count)
+		count++
+		if len(valueBytes) < maxCookieLength {
+			new.Value = string(valueBytes)
+			valueBytes = []byte{}
+		} else {
+			newValue := valueBytes[:maxCookieLength]
+			valueBytes = valueBytes[maxCookieLength:]
+			new.Value = string(newValue)
+		}
+		cookies = append(cookies, new)
+	}
+	return cookies
+}
+
+// joinCookies takes a slice of cookies from the request and reconstructs the
+// full session cookie
+func joinCookies(cookies []*http.Cookie) (*http.Cookie, error) {
+	if len(cookies) == 0 {
+		return nil, fmt.Errorf("list of cookies must be > 0")
+	}
+	if len(cookies) == 1 {
+		return cookies[0], nil
+	}
+	c := copyCookie(cookies[0])
+	for i := 1; i < len(cookies); i++ {
+		c.Value += cookies[i].Value
+	}
+	c.Name = strings.TrimRight(c.Name, "_0")
+	return c, nil
+}
+
+// loadCookie retreieves the sessions state cookie from the http request.
+// If a single cookie is present this will be returned, otherwise it attempts
+// to reconstruct a cookie split up by splitCookie
+func loadCookie(req *http.Request, cookieName string) (*http.Cookie, error) {
+	c, err := req.Cookie(cookieName)
+	if err == nil {
+		return c, nil
+	}
+	cookies := []*http.Cookie{}
+	err = nil
+	count := 0
+	for err == nil {
+		var c *http.Cookie
+		c, err = req.Cookie(fmt.Sprintf("%s_%d", cookieName, count))
+		if err == nil {
+			cookies = append(cookies, c)
+			count++
+		}
+	}
+	if len(cookies) == 0 {
+		return nil, fmt.Errorf("Could not find cookie %s", cookieName)
+	}
+	return joinCookies(cookies)
+}
+
+// MakeCSRFCookie creates a cookie for CSRF
 func (p *OAuthProxy) MakeCSRFCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
 	return p.makeCookie(req, p.CSRFCookieName, value, expiration, now)
 }
@@ -290,39 +435,59 @@ func (p *OAuthProxy) makeCookie(req *http.Request, name string, value string, ex
 		Value:    value,
 		Path:     "/",
 		Domain:   p.CookieDomain,
-		HttpOnly: p.CookieHttpOnly,
+		HttpOnly: p.CookieHTTPOnly,
 		Secure:   p.CookieSecure,
 		Expires:  now.Add(expiration),
 	}
 }
 
+// ClearCSRFCookie creates a cookie to unset the CSRF cookie stored in the user's
+// session
 func (p *OAuthProxy) ClearCSRFCookie(rw http.ResponseWriter, req *http.Request) {
 	http.SetCookie(rw, p.MakeCSRFCookie(req, "", time.Hour*-1, time.Now()))
 }
 
+// SetCSRFCookie adds a CSRF cookie to the response
 func (p *OAuthProxy) SetCSRFCookie(rw http.ResponseWriter, req *http.Request, val string) {
 	http.SetCookie(rw, p.MakeCSRFCookie(req, val, p.CookieExpire, time.Now()))
 }
 
+// ClearSessionCookie creates a cookie to unset the user's authentication cookie
+// stored in the user's session
 func (p *OAuthProxy) ClearSessionCookie(rw http.ResponseWriter, req *http.Request) {
-	clr := p.MakeSessionCookie(req, "", time.Hour*-1, time.Now())
-	http.SetCookie(rw, clr)
+	var cookies []*http.Cookie
+
+	// matches CookieName, CookieName_<number>
+	var cookieNameRegex = regexp.MustCompile(fmt.Sprintf("^%s(_\\d+)?$", p.CookieName))
+
+	for _, c := range req.Cookies() {
+		if cookieNameRegex.MatchString(c.Name) {
+			clearCookie := p.makeCookie(req, c.Name, "", time.Hour*-1, time.Now())
+
+			http.SetCookie(rw, clearCookie)
+			cookies = append(cookies, clearCookie)
+		}
+	}
 
 	// ugly hack because default domain changed
-	if p.CookieDomain == "" {
-		clr2 := *clr
+	if p.CookieDomain == "" && len(cookies) > 0 {
+		clr2 := *cookies[0]
 		clr2.Domain = req.Host
 		http.SetCookie(rw, &clr2)
 	}
 }
 
+// SetSessionCookie adds the user's session cookie to the response
 func (p *OAuthProxy) SetSessionCookie(rw http.ResponseWriter, req *http.Request, val string) {
-	http.SetCookie(rw, p.MakeSessionCookie(req, val, p.CookieExpire, time.Now()))
+	for _, c := range p.MakeSessionCookie(req, val, p.CookieExpire, time.Now()) {
+		http.SetCookie(rw, c)
+	}
 }
 
+// LoadCookiedSession reads the user's authentication details from the request
 func (p *OAuthProxy) LoadCookiedSession(req *http.Request) (*providers.SessionState, time.Duration, error) {
 	var age time.Duration
-	c, err := req.Cookie(p.CookieName)
+	c, err := loadCookie(req, p.CookieName)
 	if err != nil {
 		// always http.ErrNoCookie
 		return nil, age, fmt.Errorf("Cookie %q not present", p.CookieName)
@@ -341,6 +506,7 @@ func (p *OAuthProxy) LoadCookiedSession(req *http.Request) (*providers.SessionSt
 	return session, age, nil
 }
 
+// SaveSession creates a new session cookie value and sets this on the response
 func (p *OAuthProxy) SaveSession(rw http.ResponseWriter, req *http.Request, s *providers.SessionState) error {
 	value, err := p.provider.CookieForSession(s, p.CookieCipher)
 	if err != nil {
@@ -350,16 +516,19 @@ func (p *OAuthProxy) SaveSession(rw http.ResponseWriter, req *http.Request, s *p
 	return nil
 }
 
+// RobotsTxt disallows scraping pages from the OAuthProxy
 func (p *OAuthProxy) RobotsTxt(rw http.ResponseWriter) {
 	rw.WriteHeader(http.StatusOK)
 	fmt.Fprintf(rw, "User-agent: *\nDisallow: /")
 }
 
+// PingPage responds 200 OK to requests
 func (p *OAuthProxy) PingPage(rw http.ResponseWriter) {
 	rw.WriteHeader(http.StatusOK)
 	fmt.Fprintf(rw, "OK")
 }
 
+// ErrorPage writes an error response
 func (p *OAuthProxy) ErrorPage(rw http.ResponseWriter, code int, title string, message string) {
 	log.Printf("ErrorPage %d %s %s", code, title, message)
 	rw.WriteHeader(code)
@@ -375,16 +544,17 @@ func (p *OAuthProxy) ErrorPage(rw http.ResponseWriter, code int, title string, m
 	p.templates.ExecuteTemplate(rw, "error.html", t)
 }
 
+// SignInPage writes the sing in template to the response
 func (p *OAuthProxy) SignInPage(rw http.ResponseWriter, req *http.Request, code int) {
 	p.ClearSessionCookie(rw, req)
 	rw.WriteHeader(code)
 
-	redirect_url := req.URL.RequestURI()
+	redirecURL := req.URL.RequestURI()
 	if req.Header.Get("X-Auth-Request-Redirect") != "" {
-		redirect_url = req.Header.Get("X-Auth-Request-Redirect")
+		redirecURL = req.Header.Get("X-Auth-Request-Redirect")
 	}
-	if redirect_url == p.SignInPath {
-		redirect_url = "/"
+	if redirecURL == p.SignInPath {
+		redirecURL = "/"
 	}
 
 	t := struct {
@@ -399,7 +569,7 @@ func (p *OAuthProxy) SignInPage(rw http.ResponseWriter, req *http.Request, code 
 		ProviderName:  p.provider.Data().ProviderName,
 		SignInMessage: p.SignInMessage,
 		CustomLogin:   p.displayCustomLoginForm(),
-		Redirect:      redirect_url,
+		Redirect:      redirecURL,
 		Version:       VERSION,
 		ProxyPrefix:   p.ProxyPrefix,
 		Footer:        template.HTML(p.Footer),
@@ -407,6 +577,7 @@ func (p *OAuthProxy) SignInPage(rw http.ResponseWriter, req *http.Request, code 
 	p.templates.ExecuteTemplate(rw, "sign_in.html", t)
 }
 
+// ManualSignIn handles basic auth logins to the proxy
 func (p *OAuthProxy) ManualSignIn(rw http.ResponseWriter, req *http.Request) (string, bool) {
 	if req.Method != "POST" || p.HtpasswdFile == nil {
 		return "", false
@@ -424,6 +595,8 @@ func (p *OAuthProxy) ManualSignIn(rw http.ResponseWriter, req *http.Request) (st
 	return "", false
 }
 
+// GetRedirect reads the query parameter to get the URL to redirect clients to
+// once authenticated with the OAuthProxy
 func (p *OAuthProxy) GetRedirect(req *http.Request) (redirect string, err error) {
 	err = req.ParseForm()
 	if err != nil {
@@ -431,18 +604,44 @@ func (p *OAuthProxy) GetRedirect(req *http.Request) (redirect string, err error)
 	}
 
 	redirect = req.Form.Get("rd")
-	if redirect == "" || !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
-		redirect = "/"
+	if !p.IsValidRedirect(redirect) {
+		redirect = req.URL.Path
+		if strings.HasPrefix(redirect, p.ProxyPrefix) {
+			redirect = "/"
+		}
 	}
 
 	return
 }
 
+// IsValidRedirect checks whether the redirect URL is whitelisted
+func (p *OAuthProxy) IsValidRedirect(redirect string) bool {
+	switch {
+	case strings.HasPrefix(redirect, "/") && !strings.HasPrefix(redirect, "//"):
+		return true
+	case strings.HasPrefix(redirect, "http://") || strings.HasPrefix(redirect, "https://"):
+		redirectURL, err := url.Parse(redirect)
+		if err != nil {
+			return false
+		}
+		for _, domain := range p.whitelistDomains {
+			if (redirectURL.Host == domain) || (strings.HasPrefix(domain, ".") && strings.HasSuffix(redirectURL.Host, domain)) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// IsWhitelistedRequest is used to check if auth should be skipped for this request
 func (p *OAuthProxy) IsWhitelistedRequest(req *http.Request) (ok bool) {
 	isPreflightRequestAllowed := p.skipAuthPreflight && req.Method == "OPTIONS"
 	return isPreflightRequestAllowed || p.IsWhitelistedPath(req.URL.Path)
 }
 
+// IsWhitelistedPath is used to check if the request path is allowed without auth
 func (p *OAuthProxy) IsWhitelistedPath(path string) (ok bool) {
 	for _, u := range p.compiledRegex {
 		ok = u.MatchString(path)
@@ -484,6 +683,7 @@ func (p *OAuthProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// SignIn serves a page prompting users to sign in
 func (p *OAuthProxy) SignIn(rw http.ResponseWriter, req *http.Request) {
 	redirect, err := p.GetRedirect(req)
 	if err != nil {
@@ -505,11 +705,13 @@ func (p *OAuthProxy) SignIn(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// SignOut sends a response to clear the authentication cookie
 func (p *OAuthProxy) SignOut(rw http.ResponseWriter, req *http.Request) {
 	p.ClearSessionCookie(rw, req)
 	http.Redirect(rw, req, "/", 302)
 }
 
+// OAuthStart starts the OAuth2 authentication flow
 func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 	nonce, err := cookie.Nonce()
 	if err != nil {
@@ -526,6 +728,8 @@ func (p *OAuthProxy) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 	http.Redirect(rw, req, p.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, redirect)), 302)
 }
 
+// OAuthCallback is the OAuth2 authentication flow callback that finishes the
+// OAuth2 authentication flow
 func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	remoteAddr := getRemoteAddr(req)
 
@@ -567,7 +771,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
+	if !p.IsValidRedirect(redirect) {
 		redirect = "/"
 	}
 
@@ -587,6 +791,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// AuthenticateOnly checks whether the user is currently logged in
 func (p *OAuthProxy) AuthenticateOnly(rw http.ResponseWriter, req *http.Request) {
 	status := p.Authenticate(rw, req)
 	if status == http.StatusAccepted {
@@ -596,6 +801,8 @@ func (p *OAuthProxy) AuthenticateOnly(rw http.ResponseWriter, req *http.Request)
 	}
 }
 
+// Proxy proxies the user request if the user is authenticated else it prompts
+// them to authenticate
 func (p *OAuthProxy) Proxy(rw http.ResponseWriter, req *http.Request) {
 	status := p.Authenticate(rw, req)
 	if status == http.StatusInternalServerError {
@@ -607,11 +814,14 @@ func (p *OAuthProxy) Proxy(rw http.ResponseWriter, req *http.Request) {
 		} else {
 			p.SignInPage(rw, req, http.StatusForbidden)
 		}
+	} else if status == http.StatusUnauthorized {
+		p.ErrorJSON(rw, status)
 	} else {
 		p.serveMux.ServeHTTP(rw, req)
 	}
 }
 
+// Authenticate checks whether a user is authenticated
 func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int {
 	var saveSession, clearSession, revalidated bool
 	remoteAddr := getRemoteAddr(req)
@@ -628,7 +838,8 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 		saveSession = true
 	}
 
-	if ok, err := p.provider.RefreshSessionIfNeeded(session); err != nil {
+	var ok bool
+	if ok, err = p.provider.RefreshSessionIfNeeded(session); err != nil {
 		log.Printf("%s removing session. error refreshing access token %s %s", remoteAddr, err, session)
 		clearSession = true
 		session = nil
@@ -661,7 +872,7 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 	}
 
 	if saveSession && session != nil {
-		err := p.SaveSession(rw, req, session)
+		err = p.SaveSession(rw, req, session)
 		if err != nil {
 			log.Printf("%s %s", remoteAddr, err)
 			return http.StatusInternalServerError
@@ -680,6 +891,11 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 	}
 
 	if session == nil {
+		// Check if is an ajax request and return unauthorized to avoid a redirect
+		// to the login page
+		if p.isAjax(req) {
+			return http.StatusUnauthorized
+		}
 		return http.StatusForbidden
 	}
 
@@ -705,6 +921,9 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 		if session.Email != "" {
 			rw.Header().Set("X-Auth-Request-Email", session.Email)
 			log.Printf("X-Auth-Request-Email - %v", session.Email)
+		}
+		if p.PassAccessToken && session.AccessToken != "" {
+			rw.Header().Set("X-Auth-Request-Access-Token", session.AccessToken)
 		}
 	}
 
@@ -759,6 +978,12 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 		}
 	}
 
+	if p.PassAuthorization && session.IDToken != "" {
+		req.Header["Authorization"] = []string{fmt.Sprintf("Bearer %s", session.IDToken)}
+	}
+	if p.SetAuthorization && session.IDToken != "" {
+		rw.Header().Set("Authorization", fmt.Sprintf("Bearer %s", session.IDToken))
+	}
 	if session.Email == "" {
 		rw.Header().Set("GAP-Auth", session.User)
 	} else {
@@ -767,6 +992,8 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 	return http.StatusAccepted
 }
 
+// CheckBasicAuth checks the requests Authorization header for basic auth
+// credentials and authenticates these against the proxies HtpasswdFile
 func (p *OAuthProxy) CheckBasicAuth(req *http.Request) (*providers.SessionState, error) {
 	if p.HtpasswdFile == nil {
 		return nil, nil
@@ -792,4 +1019,25 @@ func (p *OAuthProxy) CheckBasicAuth(req *http.Request) (*providers.SessionState,
 		return &providers.SessionState{User: pair[0]}, nil
 	}
 	return nil, fmt.Errorf("%s not in HtpasswdFile", pair[0])
+}
+
+// isAjax checks if a request is an ajax request
+func (p *OAuthProxy) isAjax(req *http.Request) bool {
+	acceptValues, ok := req.Header["accept"]
+	if !ok {
+		acceptValues = req.Header["Accept"]
+	}
+	const ajaxReq = applicationJSON
+	for _, v := range acceptValues {
+		if v == ajaxReq {
+			return true
+		}
+	}
+	return false
+}
+
+// ErrorJSON returns the error code witht an application/json mime type
+func (p *OAuthProxy) ErrorJSON(rw http.ResponseWriter, code int) {
+	rw.Header().Set("Content-Type", applicationJSON)
+	rw.WriteHeader(code)
 }

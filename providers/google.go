@@ -16,10 +16,11 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/admin/directory/v1"
+	admin "google.golang.org/api/admin/directory/v1"
 	"google.golang.org/api/googleapi"
 )
 
+// GoogleProvider represents an Google based Identity Provider
 type GoogleProvider struct {
 	*ProviderData
 	RedeemRefreshURL *url.URL
@@ -28,6 +29,7 @@ type GoogleProvider struct {
 	GroupValidator func(string) bool
 }
 
+// NewGoogleProvider initiates a new GoogleProvider
 func NewGoogleProvider(p *ProviderData) *GoogleProvider {
 	p.ProviderName = "Google"
 	if p.LoginURL.String() == "" {
@@ -62,7 +64,7 @@ func NewGoogleProvider(p *ProviderData) *GoogleProvider {
 	}
 }
 
-func emailFromIdToken(idToken string) (string, error) {
+func emailFromIDToken(idToken string) (string, error) {
 
 	// id_token is a base64 encode ID token payload
 	// https://developers.google.com/accounts/docs/OAuth2Login#obtainuserinfo
@@ -90,6 +92,7 @@ func emailFromIdToken(idToken string) (string, error) {
 	return email.Email, nil
 }
 
+// Redeem exchanges the OAuth2 authentication token for an ID token
 func (p *GoogleProvider) Redeem(redirectURL, code string) (s *SessionState, err error) {
 	if code == "" {
 		err = errors.New("missing code")
@@ -129,19 +132,20 @@ func (p *GoogleProvider) Redeem(redirectURL, code string) (s *SessionState, err 
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 		ExpiresIn    int64  `json:"expires_in"`
-		IdToken      string `json:"id_token"`
+		IDToken      string `json:"id_token"`
 	}
 	err = json.Unmarshal(body, &jsonResponse)
 	if err != nil {
 		return
 	}
 	var email string
-	email, err = emailFromIdToken(jsonResponse.IdToken)
+	email, err = emailFromIDToken(jsonResponse.IDToken)
 	if err != nil {
 		return
 	}
 	s = &SessionState{
 		AccessToken:  jsonResponse.AccessToken,
+		IDToken:      jsonResponse.IDToken,
 		ExpiresOn:    time.Now().Add(time.Duration(jsonResponse.ExpiresIn) * time.Second).Truncate(time.Second),
 		RefreshToken: jsonResponse.RefreshToken,
 		Email:        email,
@@ -249,12 +253,14 @@ func (p *GoogleProvider) ValidateGroup(email string) bool {
 	return p.GroupValidator(email)
 }
 
+// RefreshSessionIfNeeded checks if the session has expired and uses the
+// RefreshToken to fetch a new ID token if required
 func (p *GoogleProvider) RefreshSessionIfNeeded(s *SessionState) (bool, error) {
 	if s == nil || s.ExpiresOn.After(time.Now()) || s.RefreshToken == "" {
 		return false, nil
 	}
 
-	newToken, duration, err := p.redeemRefreshToken(s.RefreshToken)
+	newToken, newIDToken, duration, err := p.redeemRefreshToken(s.RefreshToken)
 	if err != nil {
 		return false, err
 	}
@@ -266,12 +272,13 @@ func (p *GoogleProvider) RefreshSessionIfNeeded(s *SessionState) (bool, error) {
 
 	origExpiration := s.ExpiresOn
 	s.AccessToken = newToken
+	s.IDToken = newIDToken
 	s.ExpiresOn = time.Now().Add(duration).Truncate(time.Second)
 	log.Printf("refreshed access token %s (expired on %s)", s, origExpiration)
 	return true, nil
 }
 
-func (p *GoogleProvider) redeemRefreshToken(refreshToken string) (token string, expires time.Duration, err error) {
+func (p *GoogleProvider) redeemRefreshToken(refreshToken string) (token string, idToken string, expires time.Duration, err error) {
 	// https://developers.google.com/identity/protocols/OAuth2WebServer#refresh
 	params := url.Values{}
 	params.Add("client_id", p.ClientID)
@@ -304,12 +311,14 @@ func (p *GoogleProvider) redeemRefreshToken(refreshToken string) (token string, 
 	var data struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int64  `json:"expires_in"`
+		IDToken     string `json:"id_token"`
 	}
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		return
 	}
 	token = data.AccessToken
+	idToken = data.IDToken
 	expires = time.Duration(data.ExpiresIn) * time.Second
 	return
 }

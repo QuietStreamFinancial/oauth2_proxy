@@ -9,11 +9,13 @@ import (
 	"time"
 )
 
+// Server represents an HTTP server
 type Server struct {
 	Handler http.Handler
 	Opts    *Options
 }
 
+// ListenAndServe will serve traffic on HTTP or HTTPS depending on TLS options
 func (s *Server) ListenAndServe() {
 	if s.Opts.TLSKeyFile != "" || s.Opts.TLSCertFile != "" {
 		s.ServeHTTPS()
@@ -22,13 +24,53 @@ func (s *Server) ListenAndServe() {
 	}
 }
 
-func (s *Server) ServeHTTP() {
-	httpAddress := s.Opts.HttpAddress
-	scheme := ""
+// Used with gcpHealthcheck()
+const userAgentHeader = "User-Agent"
+const googleHealthCheckUserAgent = "GoogleHC/1.0"
+const rootPath = "/"
 
-	i := strings.Index(httpAddress, "://")
+// gcpHealthcheck handles healthcheck queries from GCP.
+func gcpHealthcheck(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check for liveness and readiness:  used for Google App Engine
+		if r.URL.EscapedPath() == "/liveness_check" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+			return
+		}
+		if r.URL.EscapedPath() == "/readiness_check" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+			return
+		}
+
+		// Check for GKE ingress healthcheck:  The ingress requires the root
+		// path of the target to return a 200 (OK) to indicate the service's good health. This can be quite a challenging demand
+		// depending on the application's path structure. This middleware filters out the requests from the health check by
+		//
+		// 1. checking that the request path is indeed the root path
+		// 2. ensuring that the User-Agent is "GoogleHC/1.0", the health checker
+		// 3. ensuring the request method is "GET"
+		if r.URL.Path == rootPath &&
+			r.Header.Get(userAgentHeader) == googleHealthCheckUserAgent &&
+			r.Method == http.MethodGet {
+
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+// ServeHTTP constructs a net.Listener and starts handling HTTP requests
+func (s *Server) ServeHTTP() {
+	HTTPAddress := s.Opts.HTTPAddress
+	var scheme string
+
+	i := strings.Index(HTTPAddress, "://")
 	if i > -1 {
-		scheme = httpAddress[0:i]
+		scheme = HTTPAddress[0:i]
 	}
 
 	var networkType string
@@ -39,7 +81,7 @@ func (s *Server) ServeHTTP() {
 		networkType = scheme
 	}
 
-	slice := strings.SplitN(httpAddress, "//", 2)
+	slice := strings.SplitN(HTTPAddress, "//", 2)
 	listenAddr := slice[len(slice)-1]
 
 	listener, err := net.Listen(networkType, listenAddr)
@@ -57,8 +99,9 @@ func (s *Server) ServeHTTP() {
 	log.Printf("HTTP: closing %s", listener.Addr())
 }
 
+// ServeHTTPS constructs a net.Listener and starts handling HTTPS requests
 func (s *Server) ServeHTTPS() {
-	addr := s.Opts.HttpsAddress
+	addr := s.Opts.HTTPSAddress
 	config := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS12,
