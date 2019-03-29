@@ -87,6 +87,8 @@ type OAuthProxy struct {
 	PassAccessToken     bool
 	PassRolesHeader     bool
 	DefaultUserRole  		string
+	SetAuthorization    bool
+	PassAuthorization   bool
 	CookieCipher        *cookie.Cipher
 	skipAuthRegex       []string
 	skipAuthPreflight   bool
