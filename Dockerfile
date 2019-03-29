@@ -22,4 +22,6 @@ COPY --from=builder /go/src/github.com/pusher/oauth2_proxy/oauth2_proxy /bin/oau
 RUN addgroup -S -g 2000 oauth2proxy && adduser -S -u 2000 oauth2proxy -G oauth2proxy
 USER oauth2proxy
 
+EXPOSE 4180
+
 ENTRYPOINT ["/bin/oauth2_proxy"]
