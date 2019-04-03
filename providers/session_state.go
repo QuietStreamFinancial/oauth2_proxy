@@ -18,6 +18,7 @@ type SessionState struct {
 	RefreshToken string    `json:",omitempty"`
 	Email        string    `json:",omitempty"`
 	User         string    `json:",omitempty"`
+	Roles        string    `json:",omitempty"`
 }
 
 // SessionStateJSON is used to encode SessionState into JSON without exposing time.Time zero value
@@ -76,6 +77,12 @@ func (s *SessionState) EncodeSessionState(c *cookie.Cipher) (string, error) {
 		}
 		if ss.RefreshToken != "" {
 			ss.RefreshToken, err = c.Encrypt(ss.RefreshToken)
+			if err != nil {
+				return "", err
+			}
+		}
+		if ss.Roles != "" {
+			ss.Roles, err = c.Encrypt(ss.RefreshToken)
 			if err != nil {
 				return "", err
 			}
@@ -186,6 +193,12 @@ func DecodeSessionState(v string, c *cookie.Cipher) (*SessionState, error) {
 		}
 		if ss.RefreshToken != "" {
 			ss.RefreshToken, err = c.Decrypt(ss.RefreshToken)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if ss.Roles != "" {
+			ss.Roles, err = c.Decrypt(ss.Roles)
 			if err != nil {
 				return nil, err
 			}

@@ -133,7 +133,7 @@ func (p *GitHubProvider) hasOrg(accessToken string) (bool, error) {
 	return false, nil
 }
 
-func (p *GitHubProvider) SetUserRoles(accessToken string) (bool, error) {
+func (p *GitHubProvider) SetUserRoles(accessToken string, session *SessionState) (bool, error) {
 
 	// https://developer.github.com/v3/orgs/teams/#list-user-teams
 	params := url.Values{
@@ -169,6 +169,23 @@ func (p *GitHubProvider) SetUserRoles(accessToken string) (bool, error) {
 	}
 
 	log.Printf("Returned roles - %v", p.userRoles)
+
+	presentOrgs := make(map[string]bool)
+	var presentRoles []string
+	for _, team := range p.userRoles {
+		presentOrgs[team.Org.Login] = true
+		if p.Org == team.Org.Login {
+			ts := strings.Split(p.Team, ",")
+			for _, t := range ts {
+				if t == team.Slug {
+					log.Printf("Found Github Organization:%q Team:%q (Name:%q)", team.Org.Login, team.Slug, team.Name)
+				}
+			}
+			presentRoles = append(presentRoles, team.Slug)
+		}
+	}
+
+	session.Roles = strings.Join(presentRoles, ",")
 
 	return true, nil
 }
@@ -212,7 +229,7 @@ func (p *GitHubProvider) GetEmailAddress(s *SessionState) (string, error) {
 		Primary bool   `json:"primary"`
 	}
 
-	if ok, err := p.SetUserRoles(s.AccessToken); err != nil || !ok {
+	if ok, err := p.SetUserRoles(s.AccessToken, s); err != nil || !ok {
 		return "", err
 	}
 
