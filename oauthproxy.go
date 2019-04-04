@@ -86,7 +86,7 @@ type OAuthProxy struct {
 	BasicAuthPassword   string
 	PassAccessToken     bool
 	PassRolesHeader     bool
-	DefaultUserRole  		string
+	DefaultUserRole     string
 	SetAuthorization    bool
 	PassAuthorization   bool
 	CookieCipher        *cookie.Cipher
@@ -260,8 +260,8 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 		PassUserHeaders:    opts.PassUserHeaders,
 		BasicAuthPassword:  opts.BasicAuthPassword,
 		PassAccessToken:    opts.PassAccessToken,
-		PassRolesHeader:   	opts.PassRolesHeader,
-		DefaultUserRole: 		opts.DefaultUserRole,
+		PassRolesHeader:    opts.PassRolesHeader,
+		DefaultUserRole:    opts.DefaultUserRole,
 		SetAuthorization:   opts.SetAuthorization,
 		PassAuthorization:  opts.PassAuthorization,
 		SkipProviderButton: opts.SkipProviderButton,
@@ -836,7 +836,7 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 		log.Printf("%s refreshing %s old session cookie for %s (refresh after %s)", remoteAddr, sessionAge, session, p.CookieRefresh)
 		log.Printf("Refreshing role permissions for user")
 		rp := p.provider.(providers.RoleProvider)
-		rp.SetUserRoles(session.AccessToken)
+		rp.SetUserRoles(session.AccessToken, session)
 		saveSession = true
 	}
 
@@ -935,15 +935,15 @@ func (p *OAuthProxy) Authenticate(rw http.ResponseWriter, req *http.Request) int
 
 	if p.PassRolesHeader {
 		rp := p.provider.(providers.RoleProvider)
-		roles := rp.GetUserRoles()
+		roles := session.Roles
 		// Upon restarting the proxy, if there is an existing cookie, we need to re-fetch roles from provider
 		// Project preference is to avoid cookie bloat, so we aren't storing roles in the cookie
 		// https://github.com/bitly/oauth2_proxy/issues/174#issuecomment-1578273584
 		var i = 0
-		if len(roles) < 1  && i < 1 {
+		if len(roles) < 1 && i < 1 {
 			i++
-			rp.SetUserRoles(session.AccessToken)
-			refreshedRoles := rp.GetUserRoles()
+			rp.SetUserRoles(session.AccessToken, session)
+			refreshedRoles := session.Roles
 			if p.DefaultUserRole != "" {
 				mergedRefreshRoles := (p.DefaultUserRole + refreshedRoles)
 				req.Header["X-Forwarded-Roles"] = []string{mergedRefreshRoles}
