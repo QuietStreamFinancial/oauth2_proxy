@@ -19,9 +19,9 @@ A list of changes can be seen in the [CHANGELOG](CHANGELOG.md).
 
 1.  Choose how to deploy:
 
-    a. Download [Prebuilt Binary](https://github.com/pusher/oauth2_proxy/releases) (current release is `v3.1.0`)
+    a. Download [Prebuilt Binary](https://github.com/QuietStreamFinancial/oauth2_proxy/releases) (current release is `v3.1.0`)
 
-    b. Build with `$ go get github.com/pusher/oauth2_proxy` which will put the binary in `$GOROOT/bin`
+    b. Build with `$ go get github.com/QuietStreamFinancial/oauth2_proxy` which will put the binary in `$GOROOT/bin`
 
     c. Using the prebuilt docker image [quay.io/pusher/oauth2_proxy](https://quay.io/pusher/oauth2_proxy) (AMD64, ARMv6 and ARM64 tags available)
 

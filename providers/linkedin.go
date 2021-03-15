@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/pusher/oauth2_proxy/api"
+	"github.com/QuietStreamFinancial/oauth2_proxy/api"
 )
 
 // LinkedInProvider represents an LinkedIn based Identity Provider

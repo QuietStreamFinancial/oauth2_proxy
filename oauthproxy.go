@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/mbland/hmacauth"
-	"github.com/pusher/oauth2_proxy/cookie"
-	"github.com/pusher/oauth2_proxy/providers"
+	"github.com/QuietStreamFinancial/oauth2_proxy/cookie"
+	"github.com/QuietStreamFinancial/oauth2_proxy/providers"
 	"github.com/yhat/wsutil"
 )
 
