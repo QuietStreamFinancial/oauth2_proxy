@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -52,8 +53,9 @@ func validateToken(p Provider, accessToken string, header http.Header) bool {
 	}
 	endpoint := p.Data().ValidateURL.String()
 	if len(header) == 0 {
-		params := url.Values{"access_token": {accessToken}}
-		endpoint = endpoint + "?" + params.Encode()
+		header := make(http.Header)
+		header.Set("Accept", "application/vnd.github.v3+json")
+		header.Set("Authorization", fmt.Sprintf("token %s", accessToken))
 	}
 	resp, err := api.RequestUnparsedResponse(endpoint, header)
 	if err != nil {
