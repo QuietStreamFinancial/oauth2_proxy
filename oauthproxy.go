@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuietStreamFinancial/oauth2_proxy/cookie"
 	"github.com/QuietStreamFinancial/oauth2_proxy/providers"
 	"github.com/mbland/hmacauth"
-	"github.com/pusher/oauth2_proxy/cookie"
 	"github.com/yhat/wsutil"
 )
 
