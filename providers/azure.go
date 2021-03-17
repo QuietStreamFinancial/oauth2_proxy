@@ -8,7 +8,7 @@ import (
 	"net/url"
 
 	"github.com/bitly/go-simplejson"
-	"github.com/pusher/oauth2_proxy/api"
+	"github.com/QuietStreamFinancial/oauth2_proxy/api"
 )
 
 // AzureProvider represents an Azure based Identity Provider

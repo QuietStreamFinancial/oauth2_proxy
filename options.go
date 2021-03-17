@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuietStreamFinancial/oauth2_proxy/providers"
 	oidc "github.com/coreos/go-oidc"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/mbland/hmacauth"
-	"github.com/pusher/oauth2_proxy/providers"
 )
 
 // Options holds Configuration Options that can be set by Command Line Flag,
@@ -60,8 +60,8 @@ type Options struct {
 	BasicAuthPassword     string        `flag:"basic-auth-password" cfg:"basic_auth_password" env:"OAUTH2_PROXY_BASIC_AUTH_PASSWORD"`
 	PassAccessToken       bool          `flag:"pass-access-token" cfg:"pass_access_token" env:"OAUTH2_PROXY_PASS_ACCESS_TOKEN"`
 	PassHostHeader        bool          `flag:"pass-host-header" cfg:"pass_host_header" env:"OAUTH2_PROXY_PASS_HOST_HEADER"`
-	PassRolesHeader   		bool     			`flag:"pass-roles-header" cfg:"pass_roles_header"`
-	DefaultUserRole       string 				`flag:"default-user-role" cfg:"default_user_role"`
+	PassRolesHeader       bool          `flag:"pass-roles-header" cfg:"pass_roles_header"`
+	DefaultUserRole       string        `flag:"default-user-role" cfg:"default_user_role"`
 	SkipProviderButton    bool          `flag:"skip-provider-button" cfg:"skip_provider_button" env:"OAUTH2_PROXY_SKIP_PROVIDER_BUTTON"`
 	PassUserHeaders       bool          `flag:"pass-user-headers" cfg:"pass_user_headers" env:"OAUTH2_PROXY_PASS_USER_HEADERS"`
 	SSLInsecureSkipVerify bool          `flag:"ssl-insecure-skip-verify" cfg:"ssl_insecure_skip_verify" env:"OAUTH2_PROXY_SSL_INSECURE_SKIP_VERIFY"`
@@ -128,7 +128,7 @@ func NewOptions() *Options {
 		PassUserHeaders:      true,
 		PassAccessToken:      false,
 		PassHostHeader:       true,
-		PassRolesHeader:     	false,
+		PassRolesHeader:      false,
 		DefaultUserRole:      "",
 		SetAuthorization:     false,
 		PassAuthorization:    false,
